@@ -1,0 +1,234 @@
+/**
+ * Area.pde
+ * A convex polygon constructor and area calculator.
+ *
+ * Works pretty damn closely to what we want, but seems to lock up
+ * on occassion. Not sure why yet...
+ */
+
+void setup() {
+    size(640, 480);
+    frameRate(60);
+    font = loadFont("./data/times.vlw");
+    textFont(font);
+}
+
+void draw() {
+    background(0);
+    
+    //Draw the grid.
+    stroke(100, 100, 100);
+    for (int x = 0; x < width; x+=10) {
+        line(x, 0, x, height);
+    }
+    for (int y = 0; y < height; y+=10) {
+        line(0, y, width, y);
+    }
+
+    float area = 0;
+    if (points.size() > 2) {
+        calculateArea = true;
+    }
+    
+    //Draw the shape.
+    if (drawLargest) {
+        area = drawLargestArea(points);
+    } else {
+        area = drawAllPoints(points);
+    }
+    
+    //Print point coordinates.
+    stroke(0, 150, 100);
+    for (int i = 0; i < points.size(); i++) {
+        Point p = (Point) points.get(i);
+            
+        fill(0, 150, 100);
+        ellipse(p.x, p.y, 3, 3);
+        
+        if (printPointText) {
+            fill(255, 255, 255);
+            text("(" + p.x/COORD_SCALING_FACTOR + 
+                ", " + p.y/COORD_SCALING_FACTOR + 
+                ")", p.x - 10, p.y + 20);
+        }
+    }
+    
+    text("Area = " + area, 20, height - 20);
+}
+
+/**
+ * Draws all of the points in the polygon in the order that they were
+ * put down.
+ */
+float drawAllPoints(ArrayList graphPoints) {
+    float area = 0;
+    Point pPrev = null;
+    if (calculateArea) {
+        pPrev = (Point) graphPoints.get(graphPoints.size() - 1);
+    }
+    
+    stroke(255, 0, 0);
+    beginShape();
+    for (int i = 0; i < graphPoints.size(); i++) { 
+        Point p = (Point) graphPoints.get(i);
+        vertex(p.x, p.y);
+        
+        if (calculateArea) {
+            area += (pPrev.x * p.y) - (p.x * pPrev.y);
+            pPrev = p;
+        }
+    }
+    fill(100, 100, 200, 100);
+    endShape(CLOSE);
+    
+    return area/(2 * POLYGON_SCALING_FACTOR);
+}
+
+/** 
+ *  Calculates area of the largest convex polygon created with a subset
+ *  of the points in the ArrayList 'points' using the Jarvis March / 
+ *  Gift Wrapping algorithm.
+ */
+float drawLargestArea(ArrayList graphPoints) {
+    if (!calculateArea) {
+        return drawAllPoints(graphPoints);
+    }
+    
+    if (!newPointsOnGraph && calculatedAtLeastOnce) {
+        return drawAllPoints(largestPoly);
+    } else if (stillCalculatingArea) {
+        if (calculatedAtLeastOnce) {
+            return drawAllPoints(largestPoly);
+        } else {
+            return drawAllPoints(graphPoints);
+        }
+    }
+    
+    stillCalculatingArea = true;
+    
+    //Determine the lowest point on the hull.
+    Point lastPointOnHull = new Point(0, Float.NEGATIVE_INFINITY);
+    for (int i = 0; i < graphPoints.size(); i++) { 
+        Point p = (Point) graphPoints.get(i);
+        if (p.isOnPath && (p.y > lastPointOnHull.y)) {
+            lastPointOnHull = p;
+        }
+    }
+    
+    println("Lowest Point: (" + lastPointOnHull.x + ", " + lastPointOnHull.y + ")");
+    
+    //Construct the convex hull path.
+    ArrayList convexHull = new ArrayList();
+    double angleToLastPoint = 0.0;
+    Point referencePoint = lastPointOnHull;
+    do {
+        convexHull.add(lastPointOnHull);
+        double lastAngle = Double.POSITIVE_INFINITY;
+        Point lastPoint = null;
+        
+        //Check each elligible point to see if it is on the hull path.
+        for (int j = 0; j < graphPoints.size(); j++) {
+            Point consideredPoint = (Point) graphPoints.get(j);
+            if ((!consideredPoint.isOnPath) || (consideredPoint == lastPointOnHull)) {
+                continue;
+            }
+            
+            double angle = atan2(
+                consideredPoint.x - lastPointOnHull.x,
+                consideredPoint.y - lastPointOnHull.y);
+            if (useDegrees) {
+                angle = Math.toDegrees(angle);
+            }
+                
+            if ((angle < 0.0) || (angle < angleToLastPoint)) {
+                angle += (useDegrees) ? 360.0 : 2.0 * Math.PI;
+            }
+            
+            if (angle < lastAngle) {
+                lastPoint = consideredPoint;
+                lastAngle = angle;
+            }
+        }
+                
+        lastPointOnHull = lastPoint;
+        angleToLastPoint = lastAngle;
+
+    } while (lastPointOnHull != referencePoint);
+    
+    println("2");
+    
+    //All points not on the path must be inside it. They can not be part
+    //of the convex hull later. Disregard those points from future 
+    //computations.
+    for (int i = 0; i < graphPoints.size(); i++) {
+        Point p = (Point) graphPoints.get(i);
+        if (p.isOnPath && !convexHull.contains(p)) {
+            p.isOnPath = false;
+        }
+    }
+    
+    largestPoly = convexHull;
+    newPointsOnGraph = false;
+    stillCalculatingArea = false;
+    calculatedAtLeastOnce = true;
+    
+    return drawAllPoints(largestPoly);
+}
+
+public class Point {
+    float x;
+    float y;
+    boolean isOnPath;
+    
+    public Point(float x, float y) {
+        this.x = x;
+        this.y = y;
+        this.isOnPath = true;
+    }
+}
+
+void mousePressed() {
+    Point p = new Point(mouseX, mouseY);
+    while (stillCalculatingArea) {}
+    points.add(p);
+    newPointsOnGraph = true;
+}
+
+void keyPressed() {    
+    switch(key) {
+    case 'c':
+    case 'C':
+        points = new ArrayList();
+        calculateArea = false;
+        break;
+    case 't':
+    case 'T':
+        printPointText = !printPointText;
+        break;
+    case 'm':
+    case 'M':
+        drawLargest = !drawLargest;
+        break;
+    case 's':
+    case 'S':
+        step = true;
+        break;
+    default:
+        break;
+    }
+}
+
+Point newestPoint = null;
+ArrayList points = new ArrayList();
+ArrayList largestPoly = new ArrayList();
+boolean drawLargest = true;
+boolean calculateArea = false;
+boolean printPointText = true;
+boolean newPointsOnGraph = true;
+boolean stillCalculatingArea = false; 
+boolean calculatedAtLeastOnce = false;
+boolean step = false;
+boolean useDegrees = false;
+int POLYGON_SCALING_FACTOR = 100;
+int COORD_SCALING_FACTOR = 100;
+PFont font;
